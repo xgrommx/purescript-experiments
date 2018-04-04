@@ -16,10 +16,10 @@ import ListL (List'(..))
 import Matryoshka (cata, cataM)
 import NaturalC (NaturalC, oneC, threeC)
 import Peano3 (Peano(..))
-import Prelude (class Functor, Unit, discard, ($), (+))
+import Prelude (class Functor, Unit, discard, ($), (+), (<$>))
 import RoseTree (alg3, evalM, tree)
-import Tree (Tree(..))
-import TreeC (TreeC(..))
+import Tree (Tree)
+import TreeC (TreeC, emptyC, nodeC)
 
 ---------------------------------------------------------------------------
 
@@ -76,3 +76,5 @@ main = do
   logShow $ toNaturalC $ Succ (Succ Zero)
   logShow $ runWriter $ cataM evalM tree
   logShow $ unwrap (cata alg3 tree) []
+  logShow $ (_*10) <$> cons 10 nil
+  logShow $ (_*10) <$> nodeC (nodeC emptyC 30 emptyC) 10 emptyC

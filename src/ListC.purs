@@ -1,13 +1,13 @@
 module ListC where
   
-import Prelude (class Functor, class Show, show, const, ($), (<<<), (+))
+import Data.Bifunctor (lmap)
 import Data.Maybe (Maybe(..), maybe)
-import Data.Tuple (Tuple(..), uncurry)
-import Data.String as String
 import Data.Monoid ((<>))
-import Matryoshka (class Corecursive, class Recursive, Algebra, cata)
-
+import Data.String as String
+import Data.Tuple (Tuple(..), uncurry)
 import ListF (ListF(..))
+import Matryoshka (class Corecursive, class Recursive, Algebra, cata, embed)
+import Prelude (class Functor, class Show, show, const, ($), (<<<), (+))
 
 newtype ListC a = ListC (forall r. r -> (a -> r -> r) -> r)
 
@@ -15,7 +15,8 @@ unListC :: forall a r. ListC a -> r -> (a -> r -> r) -> r
 unListC (ListC l) = l
 
 instance functorListC :: Functor ListC where
-  map f (ListC l) = ListC (\n c -> l n (c <<< f))
+  map f = cata (embed <<< lmap f)
+--   map f (ListC l) = ListC (\n c -> l n (c <<< f))
 
 nil :: forall a. ListC a
 nil = ListC const

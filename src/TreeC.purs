@@ -1,7 +1,8 @@
 module TreeC where
 
+import Data.Bifunctor (lmap)
 import Data.Maybe (Maybe(..), maybe)
-import Matryoshka (class Corecursive, class Recursive)
+import Matryoshka (class Corecursive, class Recursive, cata, embed)
 import Prelude (class Functor, class Show, const, show, (<<<), (<>))
 import TreeF (TreeF(..))
 
@@ -13,7 +14,8 @@ unTree :: forall a r. TreeC a -> r -> (r -> a -> r -> r) -> r
 unTree (TreeC t) = t
 
 instance functorTreeC :: Functor TreeC where
-  map f (TreeC t) = TreeC (\n c -> t n (\x -> c x <<< f))
+    map f = cata (embed <<< lmap f)
+--   map f (TreeC t) = TreeC (\n c -> t n (\x -> c x <<< f))
 
 instance showTreeC :: Show a => Show (TreeC a) where
   show m = unTree m "Empty" (\l v r -> "(Node " <> l <> " " <> show v <> " " <> r <> ")")
