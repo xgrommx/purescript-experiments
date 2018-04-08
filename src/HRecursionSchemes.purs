@@ -2,20 +2,41 @@ module HRecursionSchemes where
 
 import Prelude
 
+import Conditional ((?))
+import Control.Apply (lift2, lift3)
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Console (CONSOLE, logShow)
+import Control.Monad.Writer (Writer, WriterT(..), execWriter, lift, runWriter, tell)
 import Data.Const (Const(..))
+import Data.Exists (Exists)
+import Data.Functor.Product (Product(..))
 import Data.Identity (Identity(..))
+import Data.Leibniz (type (~), coerceSymm, liftLeibniz, liftLeibniz1of2, lowerLeibniz, symm)
+import Data.Monoid (class Monoid, mempty)
+import Data.Monoid.Endo (Endo(..))
 import Data.Newtype (unwrap)
+import Data.Traversable (class Traversable)
+import Data.Tuple (fst)
+import Matryoshka (cataM)
 import Partial.Unsafe (unsafePartial)
 import Prettier.Printer (DOC, pretty, text, (<+>))
-import Data.Leibniz (type (~), symm, coerce, coerceSymm)
+import Unsafe.Coerce (unsafeCoerce)
+
+type NatM m f g = forall a. f a -> m (g a)
 
 type HAlgebra h f = h f ~> f
+type HAlgebraM m h f = NatM m (h f) f 
 type HCoalgebra h f = f ~> h f
 
 class HFunctor (h :: (Type -> Type) -> (Type -> Type)) where
   hfmap :: forall f g. (f ~> g) -> (h f ~> h g)
+
+class HFunctor h <= HFoldable (h :: (Type -> Type) -> (Type -> Type)) where
+  hfoldMap :: forall m f a. Monoid m => (forall b. f b -> m) -> h f a -> m
+
+class HFoldable h <= HTraversable (h :: (Type -> Type) -> (Type -> Type))  where
+  htraverse :: forall e f g. Applicative e => NatM e f g -> NatM e (h f) (h g)
+  -- htraverse :: forall f a b. Applicative f => (forall i. a i -> f (b i)) -> (forall i. h a i -> f (h b i))
 
 class HFunctor f <= HRecursive t f | t -> f where
   hproject ∷ t ~> f t
@@ -25,6 +46,9 @@ class HFunctor f <= Corecursive t f | t -> f where
 
 hcata :: forall h f t. HFunctor h => HRecursive t h => HAlgebra h f -> t ~> f
 hcata algebra = algebra <<< hfmap (hcata algebra) <<< hproject
+
+hcataM :: forall f t m a. HTraversable f => Monad m => HRecursive t f => HAlgebraM m f a -> NatM m t a
+hcataM f = f <=< htraverse (hcataM f) <<< hproject
 
 hhylo :: forall f a b. HFunctor f => HAlgebra f b -> HCoalgebra f a -> a ~> b
 hhylo f g = f <<< hfmap (hhylo f g) <<< g
@@ -40,7 +64,7 @@ instance showValue :: Show a => Show (Value a) where
   show = case _ of
     VInt a p -> "VInt " <> show (coerceSymm p a)
     VBool a p -> "VBool " <> show (coerceSymm p a)
-
+    
 data Expr a
   = Add (Expr Int) (Expr Int) (a ~ Int)
   | Mult (Expr Int) (Expr Int) (a ~ Int)
@@ -50,7 +74,6 @@ data Expr a
   | Bool Boolean (a ~ Boolean)
   | LessThan (Expr Int) (Expr Int) (a ~ Boolean)
   | If (Expr Boolean) (Expr a) (Expr a)
-
 
 data ExprF h a
   = AddF (h Int) (h Int) (a ~ Int)
@@ -62,6 +85,9 @@ data ExprF h a
   | LessThanF (h Int) (h Int) (a ~ Boolean)
   | IfF (h Boolean) (h a) (h a)
 
+instance exprShow :: Show a => Show (Expr a) where
+  show = pretty 1 <<< unwrap <<< hcata evalDocAlgebra
+
 instance hfunctorExpr :: HFunctor ExprF where
   hfmap f = case _ of
     AddF x y p -> AddF (f x) (f y) p
@@ -72,6 +98,28 @@ instance hfunctorExpr :: HFunctor ExprF where
     NotF x p -> NotF (f x) p
     LessThanF x y p -> LessThanF (f x) (f y) p
     IfF c x y -> IfF (f c) (f x) (f y)
+
+instance hfoldableExpr :: HFoldable ExprF where
+  hfoldMap f = case _ of
+    AddF x y p -> (f x) <> (f y)
+    MultF x y p -> (f x) <> (f y)
+    EqualF x y p -> (f x) <> (f y)
+    ValF x p -> mempty
+    BoolF x p -> mempty
+    NotF x p -> f x
+    LessThanF x y p -> (f x) <> (f y)
+    IfF c x y -> (f c) <> (f x) <> (f y)
+
+instance htraversableExpr :: HTraversable ExprF where
+  htraverse f = case _ of
+    AddF x y p -> lift2 (\x' y' -> AddF x' y' p) (f x) (f y)
+    MultF x y p -> lift2 (\x' y' -> MultF x' y' p) (f x) (f y)
+    EqualF x y p -> lift2 (\x' y' -> EqualF x' y' p) (f x) (f y)
+    ValF x p -> pure (ValF x p)
+    BoolF x p -> pure (BoolF x p)
+    NotF x p -> (\x' -> NotF x' p) <$> f x
+    LessThanF x y p -> lift2 (\x' y' -> LessThanF x' y' p) (f x) (f y)
+    IfF c x y -> lift3 IfF (f c) (f x) (f y)
 
 instance hrecursiveExpr :: HRecursive Expr ExprF where
   hproject = case _ of
@@ -92,7 +140,7 @@ eval (Mult x y p) = coerceSymm p (eval x * eval y)
 eval (Equal x y p) = coerceSymm p (eval x == eval y)
 eval (Not x p) = coerceSymm p (not (eval x))
 eval (LessThan x y p) = coerceSymm p (eval x < eval y)
-eval (If c x y) = if (eval c) then (eval x) else (eval y)
+eval (If c x y) = (eval c) ? (eval x) $ (eval y)
 
 evalAlgebra :: ExprF Identity ~> Identity
 evalAlgebra = case _ of
@@ -103,7 +151,34 @@ evalAlgebra = case _ of
   EqualF x y p -> Identity $ coerceSymm p $ unwrap x == unwrap y
   NotF x p -> Identity $ coerceSymm p $ not $ unwrap x
   LessThanF x y p -> Identity $ coerceSymm p $ unwrap x < unwrap y
-  IfF c x y -> Identity $ if (unwrap c) then (unwrap x) else (unwrap y)
+  IfF c x y -> Identity $ (unwrap c) ? (unwrap x) $ (unwrap y)
+
+evalAlgebraM :: forall a. Show a => ExprF Identity a -> Writer DOC (Identity a)
+evalAlgebraM = case _ of
+  ValF x p -> do
+    tell $ text $ show x
+    pure $ Identity $ coerceSymm p x
+  BoolF x p -> do
+    tell $ text $ show x
+    pure $ Identity $ coerceSymm p x
+  MultF x y p -> do
+    tell $ parens $ (text $ show $ unwrap x) <+> text "+" <+> (text $ show $ unwrap y)
+    pure $ Identity $ coerceSymm p $ unwrap x * unwrap y
+  AddF x y p -> do
+    tell $ parens $ (text $ show $ unwrap x) <+> text "*" <+> (text $ show $ unwrap y)
+    pure $ Identity $ coerceSymm p $ unwrap x + unwrap y
+  EqualF x y p -> do
+    tell $ parens $ (text $ show $ unwrap x) <+> text "==" <+> (text $ show $ unwrap y)
+    pure $ Identity $ coerceSymm p $ unwrap x == unwrap y
+  NotF x p -> do
+    tell $ text "not" <+> (text $ show $ unwrap x)
+    pure $ Identity $ coerceSymm p $ not $ unwrap x
+  LessThanF x y p -> do
+    tell $ parens $ (text $ show $ unwrap x) <+> text "<" <+> (text $ show $ unwrap y)
+    pure $ Identity $ coerceSymm p $ unwrap x < unwrap y
+  IfF (Identity c) (Identity x) (Identity y) -> do
+    tell $ text "if" <+> (text $ show c) <+> text "then" <+> (text $ show x) <+> text "else" <+> (text $ show y)
+    pure $ Identity $ c ? x $ y
 
 evalValueAlgebra :: Partial => ExprF Value ~> Value
 evalValueAlgebra = case _ of
@@ -114,7 +189,7 @@ evalValueAlgebra = case _ of
   EqualF (VInt x _) (VInt y _) p -> VBool (x == y) p
   NotF (VBool x _) p -> VBool (not x) p
   LessThanF (VInt x _) (VInt y _) p -> VBool (x < y) p
-  IfF (VBool c _) x y -> if c then x else y
+  IfF (VBool c _) x y -> c ? x $ y
 
 evalDocAlgebra :: ExprF (Const DOC) ~> Const DOC
 evalDocAlgebra = case _ of
@@ -141,3 +216,5 @@ example = do
   logShow $ hcata (unsafePartial evalValueAlgebra) value2
   logShow $ pretty 1 $ unwrap $ hcata evalDocAlgebra value
   logShow $ pretty 1 $ unwrap $ hcata evalDocAlgebra value2
+  logShow $ fst $ runWriter $ hcataM evalAlgebraM value2
+  -- logShow $ pretty 1 $ execWriter $ hcataM evalAlgebraM value2
