@@ -3,7 +3,8 @@ module ListC where
 import Data.Bifunctor (lmap)
 import Data.Maybe (Maybe(..), maybe)
 import Data.Monoid ((<>))
-import Data.String as String
+import Data.String (null)
+-- import Data.String as String
 import Data.Tuple (Tuple(..), uncurry)
 import ListF (ListF(..))
 import Matryoshka (class Corecursive, class Recursive, Algebra, cata, embed)
@@ -25,7 +26,7 @@ cons :: forall a. a -> ListC a -> ListC a
 cons h (ListC l) = ListC (\n c -> c h (l n c))
 
 uncons :: forall a. ListC a -> Maybe (Tuple a (ListC a))
-uncons m = unListC m Nothing $ \x xs -> Just (Tuple x (maybe nil (uncurry cons) xs))
+uncons m = unListC m Nothing $ \(x :: a) (xs :: Maybe (Tuple a (ListC a))) -> Just (Tuple x (maybe nil (uncurry cons) xs))
 
 instance recursiveListC :: Recursive (ListC a) (ListF a) where
   project :: forall a. ListC a -> ListF a (ListC a)
@@ -42,7 +43,7 @@ instance showListC :: Show a => Show (ListC a) where
     alg :: Algebra (ListF a) String
     alg = case _ of
       NilF -> ""
-      ConsF x xs -> if String.null xs
+      ConsF x xs -> if null xs
         then show x 
         else show x <> "," <> xs 
 

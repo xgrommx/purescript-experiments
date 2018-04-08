@@ -1,9 +1,10 @@
 module NaturalC where
 
-import Prelude (class Semiring, class Show, const, flip, id, show, ($), (+), (<<<))
-import Matryoshka (class Corecursive, class Recursive, Algebra, cata)
-
+import Data.Enum (succ)
+import Data.Tuple (Tuple(..))
+import Matryoshka (class Corecursive, class Recursive, Algebra, cata, para)
 import MaybeC (MaybeC, just, nothing, unMaybeC)
+import Prelude (class Semiring, class Show, const, flip, id, show, ($), (*), (+), (<<<))
 
 newtype NaturalC = NaturalC (forall r. r -> (r -> r) -> r)
 

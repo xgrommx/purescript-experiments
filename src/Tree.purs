@@ -1,9 +1,8 @@
 module Tree where
 
-import Prelude (class Functor)
-import TreeF (TreeF(..))
-
 import Matryoshka (class Corecursive, class Recursive)
+import Prelude (class Eq, class EuclideanRing, class Functor)
+import TreeF (TreeF(..))
 
 data Tree a = Empty | Node (Tree a) a (Tree a)
 
@@ -19,4 +18,4 @@ instance corecursiveTree :: Corecursive (Tree a) (TreeF a) where
   embed :: forall a. TreeF a (Tree a) -> Tree a
   embed = case _ of
     EmptyF -> Empty
-    NodeF l v r -> Node l v r
+    NodeF l v r -> Node l v r   
