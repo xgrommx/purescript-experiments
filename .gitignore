@@ -8,3 +8,5 @@
 /.purs*
 /.psa*
 /src/LList.purs
+/src/ListL.purs
+package-lock.json
